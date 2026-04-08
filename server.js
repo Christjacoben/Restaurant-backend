@@ -321,11 +321,10 @@ async function createPaymongoCheckoutSession({ lineItem, metadata }) {
 
 function setAuthCookie(res, payload) {
   const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
-
   res.cookie("token", token, {
     httpOnly: true,
-    sameSite: "none",  // ✅ ALWAYS none for cross-origin
-    secure: true,      // ✅ ALWAYS true on Render (HTTPS)
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
@@ -1146,7 +1145,7 @@ app.post("/api/payments/menu/confirm", authMiddleware, async (req, res) => {
 
       await conn.query(
         `UPDATE menu_selections
-         SET status = 'confirm'
+         SET status = 'paid'
          WHERE id = ? AND user_id = ?`,
         [payment.menu_selection_id, req.user.id],
       );
@@ -1982,11 +1981,33 @@ app.post("/api/feedback/menu", authMiddleware, async (req, res) => {
 
   try {
     const conn = await pool.getConnection();
-    await conn.query(
+
+    // First, check the current status
+    const [checkRows] = await conn.query(
+      "SELECT id, status FROM menu_selections WHERE id = ? AND user_id = ?",
+      [menuSelectionId, userId],
+    );
+
+    if (!checkRows.length) {
+      conn.release();
+      return res.status(404).json({ message: "Menu selection not found" });
+    }
+
+    console.log("Menu selection status:", checkRows[0].status);
+
+    const [result] = await conn.query(
       "UPDATE menu_selections SET feedback_rating = ?, feedback_comment = ?, feedback_date = NOW() WHERE id = ? AND user_id = ? AND status = 'paid'",
       [rating, comment || null, menuSelectionId, userId],
     );
+
     conn.release();
+
+    if (result.affectedRows === 0) {
+      return res.status(400).json({
+        message: `Cannot submit feedback. Menu order status is '${checkRows[0].status}', requires 'paid'`,
+      });
+    }
+
     res.json({ ok: true, message: "Feedback submitted successfully" });
   } catch (error) {
     console.error("Feedback error:", error);
@@ -2066,3 +2087,4 @@ app.get("/api/feedback/menu/:id", authMiddleware, async (req, res) => {
 app.listen(PORT, () => {
   console.log(`API on http://localhost:${PORT}`);
 });
+
