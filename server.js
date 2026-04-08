@@ -321,10 +321,11 @@ async function createPaymongoCheckoutSession({ lineItem, metadata }) {
 
 function setAuthCookie(res, payload) {
   const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
+
   res.cookie("token", token, {
     httpOnly: true,
-    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: "none",  // ✅ ALWAYS none for cross-origin
+    secure: true,      // ✅ ALWAYS true on Render (HTTPS)
     path: "/",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
