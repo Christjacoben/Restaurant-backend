@@ -1792,6 +1792,68 @@ app.put(
   },
 );
 
+
+app.put(
+  "/api/admin/table-reservations/:id/confirm",
+  authMiddleware,
+  adminMiddleware,
+  async (req, res) => {
+    const reservationId = req.params.id;
+
+    try {
+      const conn = await pool.getConnection();
+      try {
+        // Update payment_status to 'paid' for the specific table reservation
+        const [result] = await conn.query(
+          `
+          UPDATE table_reservations
+          SET payment_status = 'paid'
+          WHERE id = ?
+        `,
+          [reservationId],
+        );
+
+        if (result.affectedRows === 0) {
+          return res.status(404).json({ message: "Reservation not found." });
+        }
+
+        // Fetch and return the updated reservation details
+        const [rows] = await conn.query(
+          `
+          SELECT id, user_id, user_name, restaurant_name, guests,
+                 reservation_date, reservation_time, full_name, email,
+                 phone_number, special_requests, agree_policy,
+                 selected_menu, menu_total, payment_status, created_at
+          FROM table_reservations
+          WHERE id = ?
+          LIMIT 1
+        `,
+          [reservationId],
+        );
+
+        if (!rows.length) {
+          return res
+            .status(404)
+            .json({ message: "Reservation not found after confirmation." });
+        }
+
+        const updated = rows[0];
+        res.json({
+          message: "Payment confirmed successfully",
+          reservation: updated,
+        });
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Confirm table reservation payment error:", error);
+      return res
+        .status(500)
+        .json({ message: "Unable to confirm payment for reservation." });
+    }
+  },
+);
+
 app.get(
   "/api/admin/sales-report",
   authMiddleware,
